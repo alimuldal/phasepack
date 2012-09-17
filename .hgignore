@@ -1,0 +1,27 @@
+syntax: glob
+*.pyc
+*~
+*.swp
+*.png
+*.svg
+*.pdf
+*.x
+*.X
+runs/*
+dist/*
+build/*
+boy
+*.pickle
+*.hdf5
+*.mat
+*.log
+*.avi
+*.prof
+*.so
+*.html
+*.tar
+*.gz
+*.zip
+*.7z
+syntax: regexp
+

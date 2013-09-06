@@ -25,21 +25,15 @@ try:
 		return C
 # Otherwise use the normal scipy fftpack ones instead (~2-3x slower!)
 except ImportError:
-	print \
-	"Module 'anfft' (FFTW Python bindings) could not be imported.\n"\
-	"To install it, try running 'easy_install anfft' from the terminal.\n"\
-	"Falling back on the slower 'fftpack' module for 2D Fourier transforms."
+	import warnings
+	warnings.warn("""
+Module 'anfft' (FFTW Python bindings) could not be imported. To install it, try
+running 'easy_install anfft' from the terminal. Falling back on the slower
+'fftpack' module for 2D Fourier transforms.""")
 	from scipy.fftpack import fft2, ifft2
 
-def phasesym(	img,
-		nscale = 5,
-		norient = 6,
-		minWaveLength = 3,
-		mult = 2.1,
-		sigmaOnf = 0.55,
-		k = 2.,
-		polarity = 0,
-		noiseMethod = -1):
+def phasesym(img, nscale=5, norient=6, minWaveLength=3, mult=2.1, sigmaOnf=0.55,
+		k=2., polarity=0, noiseMethod=-1):
 	"""
 	This function calculates the phase symmetry of points in an image.
 	This is a contrast invariant measure of symmetry.  This function can be
@@ -53,7 +47,7 @@ def phasesym(	img,
 	------------------------
 	<Name>	<Default>	<Description>
 	img 		N/A 	The input image
-	nscales		5 	Number of wavelet scales, try values 3-6
+	nscale		5 	Number of wavelet scales, try values 3-6
 	norient		6 	Number of filter orientations.
 	minWaveLength	3 	Wavelength of smallest scale filter.
 	mult 		2.1 	Scaling factor between successive filters.
@@ -159,18 +153,28 @@ def phasesym(	img,
 	# Pre-compute some stuff to speed up filter construction
 
 	# Set up X and Y matrices with ranges normalised to +/- 0.5
-	y,x = np.ogrid[-0.5:0.5:(1./rows),-0.5:0.5:(1./cols)]
+	if (cols % 2):
+		xvals = np.arange(-(cols-1)/2., ((cols-1)/2.)+1) / float(cols-1)
+	else:
+		xvals = np.arange(-cols/2., cols/2.) / float(cols)
+
+	if (rows % 2):
+		yvals = np.arange(-(rows-1)/2., ((rows-1)/2.)+1) / float(rows-1)
+	else:
+		yvals = np.arange(-rows/2., rows/2.) / float(rows)
+
+	x,y = np.meshgrid(xvals,yvals,sparse=True)
 
 	# normalised distance from centre
-	radius = np.sqrt(x**2. + y**2.)
+	radius = np.sqrt(x*x + y*y)
 
 	# polar angle (-ve y gives +ve anti-clockwise angles)
 	theta = np.arctan2(-y,x)
 
 	# Quadrant shift radius and theta so that filters are constructed with 0
 	# frequency at the corners
-	radius = fftshift(radius)
-	theta = fftshift(theta)
+	radius = ifftshift(radius)
+	theta = ifftshift(theta)
 
 	# Get rid of the 0 radius value at the 0 frequency point (now at top-left
 	# corner) so that taking the log of the radius will not cause trouble.
@@ -208,7 +212,8 @@ def phasesym(	img,
 		fo = 1./wavelength
 
 		# log Gabor
-		tmp = np.exp( (-(np.log(radius/fo))**2.)/logGaborDenom )
+		logRadOverFo = np.log(radius/fo)
+		tmp = np.exp( -(logRadOverFo*logRadOverFo)/logGaborDenom )
 
 		# apply low-pass filter
 		tmp = tmp*lp
@@ -242,8 +247,7 @@ def phasesym(	img,
 
 		# Scale theta so that cosine spread function has the right
 		# wavelength and clamp to pi.
-		dtheta *= norient/2.
-		dtheta = np.where(dtheta <= np.pi, dtheta, np.pi)
+		np.clip(dtheta*norient/2.,a_min=0,a_max=np.pi,out=dtheta)
 
 		# The spread function is cos(dtheta) between -pi and pi.  We add
 		# 1, and then divide by 2 so that the value ranges 0-1
@@ -294,33 +298,36 @@ def phasesym(	img,
 
 		# Automatically determine noise threshold
 
-		# Assuming the noise is Gaussian the response of the filters to noise will
-		# form Rayleigh distribution.  We use the filter responses at the smallest
-		# scale as a guide to the underlying noise level because the smallest
-		# scale filters spend most of their time responding to noise, and only
-		# occasionally responding to features. Either the median, or the mode, of
-		# the distribution of filter responses can be used as a robust statistic
-		# to estimate the distribution mean and standard deviation as these are
-		# related to the median or mode by fixed constants.  The response of the
-		# larger scale filters to noise can then be estimated from the smallest
-		# scale filter response according to their relative bandwidths.
+		# Assuming the noise is Gaussian the response of the filters to
+		# noise will form Rayleigh distribution.  We use the filter
+		# responses at the smallest scale as a guide to the underlying
+		# noise level because the smallest scale filters spend most of
+		# their time responding to noise, and only occasionally
+		# responding to features. Either the median, or the mode, of the
+		# distribution of filter responses can be used as a robust
+		# statistic to estimate the distribution mean and standard
+		# deviation as these are related to the median or mode by fixed
+		# constants.  The response of the larger scale filters to noise
+		# can then be estimated from the smallest scale filter response
+		# according to their relative bandwidths.
 
-		# This code assumes that the expected reponse to noise on the phase
-		# congruency calculation is simply the sum of the expected noise responses
-		# of each of the filters.  This is a simplistic overestimate, however
-		# these two quantities should be related by some constant that will depend
-		# on the filter bank being used.  Appropriate tuning of the parameter 'k'
-		# will allow you to produce the desired output.
+		# This code assumes that the expected reponse to noise on the
+		# phase congruency calculation is simply the sum of the expected
+		# noise responses of each of the filters.  This is a simplistic
+		# overestimate, however these two quantities should be related
+		# by some constant that will depend on the filter bank being
+		# used.  Appropriate tuning of the parameter 'k' will allow you
+		# to produce the desired output.
 
 		# fixed noise threshold
 		if noiseMethod >= 0:
 			T = noiseMethod
 
-		# Estimate the effect of noise on the sum of the filter responses as
-		# the sum of estimated individual responses (this is a simplistic
-		# overestimate). As the estimated noise response at succesive scales
-		# is scaled inversely proportional to bandwidth we have a simple
-		# geometric sum.
+		# Estimate the effect of noise on the sum of the filter
+		# responses as the sum of estimated individual responses (this
+		# is a simplistic overestimate). As the estimated noise response
+		# at succesive scales is scaled inversely proportional to
+		# bandwidth we have a simple geometric sum.
 		else:
 			totalTau = tau*(1. - (1./mult)**nscale)/(1. - (1./mult))
 
@@ -331,32 +338,36 @@ def phasesym(	img,
 			EstNoiseEnergySigma = totalTau*np.sqrt((4-np.pi)/2.)
 
 			# Noise threshold, must be >= epsilon
-			T = np.max((EstNoiseEnergyMean + k*EstNoiseEnergySigma,epsilon))
+			T = np.maximum(
+				EstNoiseEnergyMean + k*EstNoiseEnergySigma,
+				epsilon)
 
-		# Apply noise threshold,  this is effectively wavelet denoising via
-		# soft thresholding.  Note 'Energy_ThisOrient' will have -ve values.
-		# These will be floored out at the final normalization stage.
+		# Apply noise threshold,  this is effectively wavelet denoising
+		# via soft thresholding.  Note 'Energy_ThisOrient' will have -ve
+		# values. These will be floored out at the final normalization
+		# stage.
 		Energy_ThisOrient -= T
 
 		# Update accumulator matrix for sumAn and totalEnergy
 		totalSumAn += sumAn_ThisOrient
 		totalEnergy += Energy_ThisOrient
 
-		# Update orientation matrix by finding image points where the energy in
-		# this orientation is greater than in any previous orientation (the
-		# change matrix) and then replacing these elements in the orientation
-		# matrix with the current orientation number.
+		# Update orientation matrix by finding image points where the
+		# energy in this orientation is greater than in any previous
+		# orientation (the change matrix) and then replacing these
+		# elements in the orientation matrix with the current
+		# orientation number.
 		if oo == 0:
 			maxEnergy = Energy_ThisOrient
 		else:
 			change = Energy_ThisOrient > maxEnergy
 			orientation = oo*change + orientation*(~change)
-			maxEnergy = np.where(change,Energy_ThisOrient,maxEnergy)
+			maxEnergy = np.maximum(Energy_ThisOrient,maxEnergy)
 
 	# Normalize totalEnergy by the totalSumAn to obtain phase symmetry
 	# totalEnergy is floored at 0 to eliminate -ve values
-	totalEnergy = np.where(totalEnergy >= 0, totalEnergy, 0)
-	phaseSym = totalEnergy / (totalSumAn+epsilon)
+	totalEnergy = np.maximum(totalEnergy, 0)
+	phaseSym = totalEnergy / (totalSumAn + epsilon)
 
 	# Convert orientation matrix values to degrees
 	orientation = np.fix(orientation*(180./norient))

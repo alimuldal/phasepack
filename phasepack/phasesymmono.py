@@ -25,20 +25,15 @@ try:
 		return C
 # Otherwise use the normal scipy fftpack ones instead (~2-3x slower!)
 except ImportError:
-	print \
-	"Module 'anfft' (FFTW Python bindings) could not be imported.\n"\
-	"To install it, try running 'easy_install anfft' from the terminal.\n"\
-	"Falling back on the slower 'fftpack' module for 2D Fourier transforms."
+	import warnings
+	warnings.warn("""
+Module 'anfft' (FFTW Python bindings) could not be imported. To install it, try
+running 'easy_install anfft' from the terminal. Falling back on the slower
+'fftpack' module for 2D Fourier transforms.""")
 	from scipy.fftpack import fft2, ifft2
 
-def phasesymmono(	img,
-			nscale = 5,
-			minWaveLength = 3,
-			mult = 2.1,
-			sigmaOnf = 0.55,
-			k = 2.,
-			polarity = 0,
-			noiseMethod = -1):
+def phasesymmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
+			polarity=0, noiseMethod=-1):
 	"""
 	This function calculates the phase symmetry of points in an image.
 	This is a contrast invariant measure of symmetry.  This function can be
@@ -52,7 +47,7 @@ def phasesymmono(	img,
 	------------------------
 	<Name>	<Default>	<Description>
 	img 		N/A 	The input image
-	nscales		5 	Number of wavelet scales, try values 3-6
+	nscale		5 	Number of wavelet scales, try values 3-6
 	minWaveLength	3 	Wavelength of smallest scale filter.
 	mult 		2.1 	Scaling factor between successive filters.
 	sigmaOnf 	0.55 	Ratio of the standard deviation of the Gaussian 
@@ -155,14 +150,23 @@ def phasesymmono(	img,
 	sumAn = zeromat.copy()
 
 	# Set up u1 and u2 matrices with ranges normalised to +/- 0.5
-	u1,u2 = np.ogrid[-0.5:0.5:(1./rows),-0.5:0.5:(1./cols)]
+	if (cols % 2):
+		xvals = np.arange(-(cols-1)/2., ((cols-1)/2.)+1) / float(cols-1)
+	else:
+		xvals = np.arange(-cols/2., cols/2.) / float(cols)
+
+	if (rows % 2):
+		yvals = np.arange(-(rows-1)/2., ((rows-1)/2.)+1) / float(rows-1)
+	else:
+		yvals = np.arange(-rows/2., rows/2.) / float(rows)
+	u1,u2 = np.meshgrid(xvals,yvals,sparse=True)
 
 	# Quadrant shift to put 0 frequency at the corners
-	u1 = fftshift(u1)
-	u2 = fftshift(u2)
+	u1 = ifftshift(u1)
+	u2 = ifftshift(u2)
 
 	# Compute frequency values as a radius from centre (but quadrant shifted)
-	radius = np.sqrt(u1**2. + u2**2.)
+	radius = np.sqrt(u1*u1 + u2*u2)
 
 	# Get rid of the 0 radius value at the 0 frequency point (at top-left
 	# corner after fftshift) so that taking the log of the radius will not
@@ -183,13 +187,13 @@ def phasesymmono(	img,
 	H = (1j*u1 - u2)/radius
 
 	# The two monogenic filters H1 and H2 are not selective in terms of the
-	# magnitudes of the frequencies.  The code below generates bandpass
-	# log-Gabor filters which are point-wise multiplied by IM to produce
-	# different bandpass versions of the image before being convolved with H1
-	# and H2
+	# magnitudes of the frequencies.  The code below generates bandpass log-
+	# Gabor filters which are point-wise multiplied by IM to produce
+	# different bandpass versions of the image before being convolved with
+	# H1 and H2
 	#
-	# First construct a low-pass filter that is as large as possible, yet falls
-	# away to zero at the boundaries.  All filters are multiplied by
+	# First construct a low-pass filter that is as large as possible, yet
+	# falls away to zero at the boundaries.  All filters are multiplied by
 	# this to ensure no extra frequencies at the 'corners' of the FFT are
 	# incorporated as this can upset the normalisation process when
 	# calculating phase congruency
@@ -200,7 +204,8 @@ def phasesymmono(	img,
 		wavelength = minWaveLength*mult**ss
 		fo = 1./wavelength 	# Centre frequency of filter
 
-		logGabor = np.exp( (-(np.log(radius/fo))**2.)/logGaborDenom )
+		logRadOverFo = np.log(radius/fo)
+		logGabor = np.exp( -(logRadOverFo*logRadOverFo)/logGaborDenom )
 		logGabor *= lp 		# Apply the low-pass filter
 		logGabor[0,0] = 0. 	# Undo the radius fudge
 
@@ -213,15 +218,15 @@ def phasesymmono(	img,
 		h = ifft2(IMF*H)
 
 		# Squared amplitude of the h1 and h2 filters
-		hAmp2 = np.real(h)**2. + np.imag(h)**2
+		hAmp2 = h.real*h.real + h.imag*h.imag
 
 		# Magnitude of energy
-		sumAn += np.sqrt(f**2. + hAmp2)
+		sumAn += np.sqrt(f*f + hAmp2)
 
-		# At the smallest scale estimate noise characteristics
-		# from the distribution of the filter amplitude
-		# responses stored in sumAn.  tau is the Rayleigh
-		# parameter that is used to describe the distribution.
+		# At the smallest scale estimate noise characteristics from the
+		# distribution of the filter amplitude responses stored in
+		# sumAn. tau is the Rayleigh parameter that is used to describe
+		# the distribution.
 		if ss == 0:
 			# Use median to estimate noise statistics
 			if noiseMethod == -1:
@@ -242,28 +247,29 @@ def phasesymmono(	img,
 			totalEnergy += f - np.sqrt(hAmp2)
 
 		# just look for 'black' spots
-		elif polarity == 1:
+		elif polarity == -1:
 			totalEnergy += -f - np.sqrt(hAmp2)
 
 	# Automatically determine noise threshold
 
-	# Assuming the noise is Gaussian the response of the filters to noise will
-	# form Rayleigh distribution.  We use the filter responses at the smallest
-	# scale as a guide to the underlying noise level because the smallest
-	# scale filters spend most of their time responding to noise, and only
-	# occasionally responding to features. Either the median, or the mode, of
-	# the distribution of filter responses can be used as a robust statistic
-	# to estimate the distribution mean and standard deviation as these are
-	# related to the median or mode by fixed constants.  The response of the
-	# larger scale filters to noise can then be estimated from the smallest
-	# scale filter response according to their relative bandwidths.
+	# Assuming the noise is Gaussian the response of the filters to noise
+	# will form Rayleigh distribution.  We use the filter responses at the
+	# smallest scale as a guide to the underlying noise level because the
+	# smallest scale filters spend most of their time responding to noise,
+	# and only occasionally responding to features. Either the median, or
+	# the mode, of the distribution of filter responses can be used as a
+	# robust statistic to estimate the distribution mean and standard
+	# deviation as these are related to the median or mode by fixed
+	# constants.  The response of the larger scale filters to noise can then
+	# be estimated from the smallest scale filter response according to
+	# their relative bandwidths.
 
 	# This code assumes that the expected reponse to noise on the phase
-	# congruency calculation is simply the sum of the expected noise responses
-	# of each of the filters.  This is a simplistic overestimate, however
-	# these two quantities should be related by some constant that will depend
-	# on the filter bank being used.  Appropriate tuning of the parameter 'k'
-	# will allow you to produce the desired output.
+	# congruency calculation is simply the sum of the expected noise
+	# responses of each of the filters.  This is a simplistic overestimate,
+	# however these two quantities should be related by some constant that
+	# will depend on the filter bank being used.  Appropriate tuning of the
+	# parameter 'k' will allow you to produce the desired output.
 
 	# fixed noise threshold
 	if noiseMethod >= 0:
@@ -284,13 +290,14 @@ def phasesymmono(	img,
 		EstNoiseEnergySigma = totalTau*np.sqrt((4-np.pi)/2.)
 
 		# Noise threshold, must be >= epsilon
-		T = np.max((EstNoiseEnergyMean + k*EstNoiseEnergySigma,epsilon))
+		T = np.maximum(EstNoiseEnergyMean + k*EstNoiseEnergySigma,
+			epsilon)
 
 	# Apply noise threshold - effectively wavelet denoising soft
 	# thresholding and normalize symmetryEnergy by the sumAn to obtain phase
 	# symmetry. Note the flooring operation is not necessary if you are
 	# after speed, it is just 'tidy' not having -ve symmetry values
-	phaseSym = np.where(totalEnergy-T >= 0, totalEnergy-T, 0)
+	phaseSym = np.maximum(totalEnergy-T, 0)
 	phaseSym /= sumAn + epsilon
 
 	return phaseSym, totalEnergy, T

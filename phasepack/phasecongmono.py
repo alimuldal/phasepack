@@ -3,6 +3,7 @@ import scipy as sp
 from scipy.fftpack import fftshift, ifftshift
 from tools import rayleighmode as _rayleighmode
 from tools import lowpassfilter as _lowpassfilter
+from tools import perfft2
 
 # Try and use the faster Fourier transform functions from the anfft module if
 # available
@@ -25,21 +26,15 @@ try:
 		return C
 # Otherwise use the normal scipy fftpack ones instead (~2-3x slower!)
 except ImportError:
-	print \
-	"Module 'anfft' (FFTW Python bindings) could not be imported.\n"\
-	"To install it, try running 'easy_install anfft' from the terminal.\n"\
-	"Falling back on the slower 'fftpack' module for 2D Fourier transforms."
+	import warnings
+	warnings.warn("""
+Module 'anfft' (FFTW Python bindings) could not be imported. To install
+it, try running 'easy_install anfft' from the terminal. Falling back on
+the slower 'fftpack' module for 2D Fourier transforms.""")
 	from scipy.fftpack import fft2, ifft2
 
-def phasecongmono(	img,
-			nscale = 4,
-			minWaveLength = 3,
-			mult = 2.1,
-			sigmaOnf = 0.55,
-			k = 2.,
-			cutOff = 0.5,
-			g = 10.,
-			noiseMethod = -1):
+def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
+			cutOff=0.5, g=10., noiseMethod=-1, deviationGain=1.5):
 	"""
 	Function for computing phase congruency on an image. This version uses
 	monogenic filters for greater speed.
@@ -48,7 +43,7 @@ def phasecongmono(	img,
 	------------------------
 	<Name>	<Default>	<Description>
 	img 		N/A 	The input image
-	nscales		5 	Number of wavelet scales, try values 3-6
+	nscale		5 	Number of wavelet scales, try values 3-6
 	minWaveLength	3 	Wavelength of smallest scale filter.
 	mult 		2.1 	Scaling factor between successive filters.
 	sigmaOnf 	0.55 	Ratio of the standard deviation of the Gaussian 
@@ -68,6 +63,10 @@ def phasecongmono(	img,
 				-1 use median of smallest scale filter responses
 				-2 use mode of smallest scale filter responses
 				0+ use noiseMethod value as the fixed noise threshold.
+	deviationGain	1.5 	Amplification to apply to the calculated phase deviation
+				result. Increasing this sharpens the edge respones, but
+				can also attenuate their magnitude if the gain is too
+				large. Sensible values lie in the range 1-2.
 
 	Return values:
 	------------------------
@@ -131,7 +130,6 @@ def phasecongmono(	img,
 	copies or substantial portions of the Software.
 	 
 	The software is provided "as is", without warranty of any kind.
-
 	"""
 
 	if img.dtype not in ['float32', 'float64']:
@@ -145,8 +143,8 @@ def phasecongmono(	img,
 
 	rows,cols = img.shape
 
-	epsilon = 1E-4	# used to prevent /0.
-	IM = fft2(img)	# Fourier transformed image
+	epsilon = 1E-4		# used to prevent /0.
+	_,IM = perfft2(img)	# Periodic Fourier transform of image
 
 	zeromat = np.zeros((rows,cols),dtype=imgdtype)
 	sumAn = zeromat.copy()
@@ -155,14 +153,23 @@ def phasecongmono(	img,
 	sumh2 = zeromat.copy()
 
 	# Set up u1 and u2 matrices with ranges normalised to +/- 0.5
-	u1,u2 = np.ogrid[-0.5:0.5:(1./rows),-0.5:0.5:(1./cols)]
+	if (cols % 2):
+		xvals = np.arange(-(cols-1)/2., ((cols-1)/2.)+1) / float(cols-1)
+	else:
+		xvals = np.arange(-cols/2., cols/2.) / float(cols)
+
+	if (rows % 2):
+		yvals = np.arange(-(rows-1)/2., ((rows-1)/2.)+1) / float(rows-1)
+	else:
+		yvals = np.arange(-rows/2., rows/2.) / float(rows)
+	u1,u2 = np.meshgrid(xvals,yvals,sparse=True)
 
 	# Quadrant shift to put 0 frequency at the corners
-	u1 = fftshift(u1)
-	u2 = fftshift(u2)
+	u1 = ifftshift(u1)
+	u2 = ifftshift(u2)
 
 	# Compute frequency values as a radius from centre (but quadrant shifted)
-	radius = np.sqrt(u1**2. + u2**2.)
+	radius = np.sqrt(u1*u1 + u2*u2)
 
 	# Get rid of the 0 radius value at the 0 frequency point (at top-left
 	# corner after fftshift) so that taking the log of the radius will not
@@ -193,14 +200,16 @@ def phasecongmono(	img,
 	# this to ensure no extra frequencies at the 'corners' of the FFT are
 	# incorporated as this can upset the normalisation process when
 	# calculating phase congruency
-	lp = _lowpassfilter([rows,cols],.4,10);	# Radius .4, 'sharpness' 10
+
+	# Updated filter parameters 6/9/2013:	radius .45, 'sharpness' 15
+	lp = _lowpassfilter((rows,cols),.45,15);
 	logGaborDenom = 2.*np.log(sigmaOnf)**2.
 
 	for ss in xrange(nscale):
 		wavelength = minWaveLength*mult**ss
 		fo = 1./wavelength 	# Centre frequency of filter
-
-		logGabor = np.exp( (-(np.log(radius/fo))**2.)/logGaborDenom )
+		logRadOverFo = (np.log(radius/fo))
+		logGabor = np.exp( -(logRadOverFo*logRadOverFo)/logGaborDenom )
 		logGabor *= lp 		# Apply the low-pass filter
 		logGabor[0,0] = 0. 	# Undo the radius fudge
 
@@ -214,7 +223,7 @@ def phasecongmono(	img,
 		h1,h2 = np.real(h),np.imag(h)
 
 		# Amplitude of this scale component
-		An = np.sqrt(f**2. + h1**2. +h2**2.)
+		An = np.sqrt(f*f + h1*h1 + h2*h2)
 
 		# Sum of amplitudes across scales
 		sumAn += An
@@ -239,7 +248,7 @@ def phasecongmono(	img,
 		else:
 			# Record the maximum amplitude of components across
 			# scales to determine the frequency spread weighting
-			maxAn = np.where(maxAn>An,maxAn,An)
+			maxAn = np.maximum(maxAn, An)
 
 		# Form weighting that penalizes frequency distributions that are
 		# particularly narrow.  Calculate fractional 'width' of the
@@ -255,33 +264,36 @@ def phasecongmono(	img,
 
 		# Automatically determine noise threshold
 
-		# Assuming the noise is Gaussian the response of the filters to noise will
-		# form Rayleigh distribution.  We use the filter responses at the smallest
-		# scale as a guide to the underlying noise level because the smallest
-		# scale filters spend most of their time responding to noise, and only
-		# occasionally responding to features. Either the median, or the mode, of
-		# the distribution of filter responses can be used as a robust statistic
-		# to estimate the distribution mean and standard deviation as these are
-		# related to the median or mode by fixed constants.  The response of the
-		# larger scale filters to noise can then be estimated from the smallest
-		# scale filter response according to their relative bandwidths.
+		# Assuming the noise is Gaussian the response of the filters to
+		# noise will form Rayleigh distribution.  We use the filter
+		# responses at the smallest scale as a guide to the underlying
+		# noise level because the smallest scale filters spend most of
+		# their time responding to noise, and only occasionally
+		# responding to features. Either the median, or the mode, of the
+		# distribution of filter responses can be used as a robust
+		# statistic to estimate the distribution mean and standard
+		# deviation as these are related to the median or mode by fixed
+		# constants.  The response of the larger scale filters to noise
+		# can then be estimated from the smallest scale filter response
+		# according to their relative bandwidths.
 
-		# This code assumes that the expected reponse to noise on the phase
-		# congruency calculation is simply the sum of the expected noise responses
-		# of each of the filters.  This is a simplistic overestimate, however
-		# these two quantities should be related by some constant that will depend
-		# on the filter bank being used.  Appropriate tuning of the parameter 'k'
-		# will allow you to produce the desired output.
+		# This code assumes that the expected reponse to noise on the
+		# phase congruency calculation is simply the sum of the expected
+		# noise responses of each of the filters.  This is a simplistic
+		# overestimate, however these two quantities should be related
+		# by some constant that will depend on the filter bank being
+		# used.  Appropriate tuning of the parameter 'k' will allow you
+		# to produce the desired output.
 
 		# fixed noise threshold
 		if noiseMethod >= 0:
 			T = noiseMethod
 
-		# Estimate the effect of noise on the sum of the filter responses as
-		# the sum of estimated individual responses (this is a simplistic
-		# overestimate). As the estimated noise response at succesive scales
-		# is scaled inversely proportional to bandwidth we have a simple
-		# geometric sum.
+		# Estimate the effect of noise on the sum of the filter
+		# responses as the sum of estimated individual responses (this
+		# is a simplistic overestimate). As the estimated noise response
+		# at succesive scales is scaled inversely proportional to
+		# bandwidth we have a simple geometric sum.
 		else:
 			totalTau = tau*(1. - (1./mult)**nscale)/(1. - (1./mult))
 
@@ -298,31 +310,42 @@ def phasecongmono(	img,
 	ori = np.arctan(-sumh2/sumh1)
 
 	# Wrap angles between -pi and pi and convert radians to degrees
-	ori = np.where(ori < 0,ori+np.pi,ori)
-	ori = np.fix(ori/np.pi*180.)
+	ori = np.fix((ori % np.pi)/np.pi*180.)
 
 	# Feature type (a phase angle between -pi/2 and pi/2)
-	ft = np.arctan2(sumf,np.sqrt(sumh1**2. + sumh2**2.))
+	ft = np.arctan2(sumf,np.sqrt(sumh1*sumh1 + sumh2*sumh2))
 
 	# Overall energy
-	energy = np.sqrt(sumf**2. + sumh1**2. + sumh2**2.) + epsilon
+	energy = np.sqrt(sumf*sumf + sumh1*sumh1 + sumh2*sumh2)
 
 	# Compute phase congruency.  The original measure, 
-	# PC = energy/sumAn 
+	#
+	# 	PC = energy/sumAn 
+	#
 	# is proportional to the weighted cos(phasedeviation).  This is not very
 	# localised so this was modified to
-	# PC = cos(phasedeviation) - |sin(phasedeviation)| 
+	#
+	# 	PC = cos(phasedeviation) - |sin(phasedeviation)| 
 	# (Note this was actually calculated via dot and cross products.)  This
 	# measure approximates 
-	# PC = 1 - phasedeviation.  
+	#
+	# 	PC = 1 - phasedeviation.  
+	#
 	# However, rather than use dot and cross products it is simpler and more
-	# efficient to simply use acos(energy/sumAn) to obtain the weighted phase
-	# deviation directly.  Note, in the expression below the noise threshold is
-	# not subtracted from energy immediately as this would interfere with the
-	# phase deviation computation.  Instead it is subtracted after this
-	# computation, hence the separate division by sumAn.  Finally this result is
-	# floored at 0, and then weighted for frequency spread.
-	M = weight*(1-np.arccos(energy/(sumAn+epsilon)) - T/(sumAn+epsilon))
-	M = np.where(M >= 0,M,0)
+	# efficient to simply use acos(energy/sumAn) to obtain the weighted
+	# phase deviation directly.  Note, in the expression below the noise
+	# threshold is not subtracted from energy immediately as this would
+	# interfere with the phase deviation computation.  Instead it is applied
+	# as a weighting as a fraction by which energy exceeds the noise
+	# threshold.  This weighting is applied in addition to the weighting for
+	# frequency spread.  Note also the phase deviation gain factor which
+	# acts to sharpen up the edge response. A value of 1.5 seems to work
+	# well.  Sensible values are from 1 to about 2.
+	
+	phase_dev = np.maximum(
+		1. - deviationGain*np.arccos(energy / (sumAn + epsilon)), 0)
+	energy_thresh = np.maximum(energy - T, 0)
+
+	M = weight*phase_dev*energy_thresh / (energy + epsilon)
 
 	return M,ori,ft,T

@@ -3,6 +3,7 @@ import scipy as sp
 from scipy.fftpack import fftshift, ifftshift
 from tools import rayleighmode as _rayleighmode
 from tools import lowpassfilter as _lowpassfilter
+import warnings
 
 # Try and use the faster Fourier transform functions from the anfft module if
 # available
@@ -25,14 +26,14 @@ try:
 		return C
 # Otherwise use the normal scipy fftpack ones instead (~2-3x slower!)
 except ImportError:
-	print \
-	"Module 'anfft' (FFTW Python bindings) could not be imported.\n"\
-	"To install it, try running 'easy_install anfft' from the terminal.\n"\
-	"Falling back on the slower 'fftpack' module for 2D Fourier transforms."
+	warnings.warn("""
+Module 'anfft' (FFTW Python bindings) could not be imported. To install it, try
+running 'easy_install anfft' from the terminal. Falling back on the slower
+'fftpack' module for 2D Fourier transforms.""")
 	from scipy.fftpack import fft2, ifft2
 
 def phasecong(	img,
-		nscale = 4,
+		nscale = 5,
 		norient = 6,
 		minWaveLength = 3,
 		mult = 2.1,
@@ -52,7 +53,7 @@ def phasecong(	img,
 	------------------------
 	<Name>	<Default>	<Description>
 	img 		N/A 	The input image
-	nscales		5 	Number of wavelet scales, try values 3-6
+	nscale		5 	Number of wavelet scales, try values 3-6
 	norient		6 	Number of filter orientations.
 	minWaveLength	3 	Wavelength of smallest scale filter.
 	mult 		2.1 	Scaling factor between successive filters.
@@ -181,18 +182,28 @@ def phasecong(	img,
 	# Pre-compute some stuff to speed up filter construction
 
 	# Set up X and Y matrices with ranges normalised to +/- 0.5
-	y,x = np.ogrid[-0.5:0.5:(1./rows),-0.5:0.5:(1./cols)]
+	if (cols % 2):
+		xvals = np.arange(-(cols-1)/2., ((cols-1)/2.)+1) / float(cols-1)
+	else:
+		xvals = np.arange(-cols/2., cols/2.) / float(cols)
+
+	if (rows % 2):
+		yvals = np.arange(-(rows-1)/2., ((rows-1)/2.)+1) / float(rows-1)
+	else:
+		yvals = np.arange(-rows/2., rows/2.) / float(rows)
+
+	x,y = np.meshgrid(xvals,yvals,sparse=True)
 
 	# normalised distance from centre
-	radius = np.sqrt(x**2. + y**2.)
+	radius = np.sqrt(x*x + y*y)
 
 	# polar angle (-ve y gives +ve anti-clockwise angles)
 	theta = np.arctan2(-y,x)
 
 	# Quadrant shift radius and theta so that filters are constructed with 0
 	# frequency at the corners
-	radius = fftshift(radius)
-	theta = fftshift(theta)
+	radius = ifftshift(radius)	# need to use ifftshift to bring 0 to (0,0)
+	theta = ifftshift(theta)
 
 	# Get rid of the 0 radius value at the 0 frequency point (now at top-left
 	# corner) so that taking the log of the radius will not cause trouble.
@@ -218,7 +229,9 @@ def phasecong(	img,
 	# extra frequencies at the 'corners' of the FFT are incorporated as this
 	# seems to upset the normalisation process when calculating phase
 	# congrunecy.
-	lp = _lowpassfilter([rows,cols],.4,10);	# Radius .4, 'sharpness' 10
+
+	# Updated filter parameters 6/9/2013:	radius .45, 'sharpness' 15
+	lp = _lowpassfilter((rows,cols),.45,15);
 
 	logGaborDenom = 2.*np.log(sigmaOnf)**2.
 	logGabor = []
@@ -230,7 +243,8 @@ def phasecong(	img,
 		fo = 1./wavelength
 
 		# log Gabor
-		tmp = np.exp( (-(np.log(radius/fo))**2.)/logGaborDenom )
+		logRadOverFo = np.log(radius/fo)
+		tmp = np.exp( -(logRadOverFo*logRadOverFo)/logGaborDenom )
 
 		# apply low-pass filter
 		tmp = tmp*lp
@@ -244,7 +258,7 @@ def phasecong(	img,
 	# MAIN LOOP
 	# for each orientation...
 	for oo in xrange(norient):
-
+	
 		# Construct the angular filter spread function
 		angl = oo*(np.pi/norient)
 
@@ -263,8 +277,7 @@ def phasecong(	img,
 
 		# Scale theta so that cosine spread function has the right
 		# wavelength and clamp to pi.
-		dtheta *= norient/2.
-		np.where(dtheta <= np.pi,dtheta,np.pi)
+		np.clip(dtheta*norient/2.,a_min=0,a_max=np.pi,out=dtheta)
 
 		# The spread function is cos(dtheta) between -pi and pi.  We add
 		# 1, and then divide by 2 so that the value ranges 0-1
@@ -285,7 +298,7 @@ def phasecong(	img,
 			filt = logGabor[ss]*spread
 
 			# Convolve image with even and odd filters
-			thisEO = ifft2(IM*filt)	# <-- here's where the MATLAB version differs!
+			thisEO = ifft2(IM*filt)
 
 			# Even + odd filter response amplitude
 			An = np.abs(thisEO)
@@ -306,18 +319,19 @@ def phasecong(	img,
 			if ss == 0:
 				# Use median to estimate noise statistics
 				if noiseMethod == -1:
-					tau = np.median(sumAn_ThisOrient.flatten())/np.sqrt(np.log(4))
+					tau = (np.median(sumAn_ThisOrient.ravel()) / 
+						np.sqrt(np.log(4)))
 
 				# Use the mode to estimate noise statistics
 				elif noiseMethod == -2:
-					tau = _rayleighmode(sumAn_ThisOrient.flatten())
+					tau = _rayleighmode(sumAn_ThisOrient.ravel())
 
 				maxAn = An
 			else:
 				# Record the maximum amplitude of components
 				# across scales to determine the frequency
 				# spread weighting
-				maxAn = np.where(maxAn>An,maxAn,An)
+				maxAn = np.maximum(maxAn, An)
 
 			# append per-scale list
 			EOscale.append(thisEO)
@@ -330,7 +344,8 @@ def phasecong(	img,
 
 		# Get weighted mean filter response vector, this gives the
 		# weighted mean phase angle.
-		XEnergy = np.sqrt(sumE_ThisOrient**2. + sumO_ThisOrient**2) + epsilon
+		XEnergy = np.sqrt(sumE_ThisOrient*sumE_ThisOrient + 
+				sumO_ThisOrient*sumO_ThisOrient) + epsilon
 		MeanE = sumE_ThisOrient / XEnergy
 		MeanO = sumO_ThisOrient / XEnergy
 
@@ -383,11 +398,13 @@ def phasecong(	img,
 			EstNoiseEnergySigma = totalTau*np.sqrt((4-np.pi)/2.)
 
 			# Noise threshold, must be >= epsilon
-			T = np.max((EstNoiseEnergyMean + k*EstNoiseEnergySigma,epsilon))
+			T = np.maximum(
+				EstNoiseEnergyMean + k*EstNoiseEnergySigma, 
+				epsilon)
 
 		# Apply noise threshold, this is effectively wavelet denoising
 		# via soft thresholding.
-		Energy = np.where(Energy-T >= 0, Energy-T, 0)
+		Energy = np.maximum(Energy-T, 0)
 
 		# Form weighting that penalizes frequency distributions that are
 		# particularly narrow.  Calculate fractional 'width' of the
@@ -408,8 +425,8 @@ def phasecong(	img,
 		# accumulate covariance data
 		covx = thisPC*np.cos(angl)
 		covy = thisPC*np.sin(angl)
-		covx2 += covx**2.
-		covy2 += covy**2.
+		covx2 += covx*covx
+		covy2 += covy*covy
 		covxy += covx*covy
 
 		# append per-orientation lists
@@ -425,7 +442,7 @@ def phasecong(	img,
 	covx2 /= norient/2.
 	covy2 /= norient/2.
 	covxy *= 4./norient	# This gives us 2*covxy/(norient/2)
-	denom = np.sqrt(covxy**2.+(covx2-covy2)**2.) + epsilon
+	denom = np.sqrt(covxy*covxy + (covx2-covy2)*(covx2-covy2)) + epsilon
 
 	# Maximum and minimum moments
 	M = (covx2+covy2 + denom)/2.
@@ -435,10 +452,10 @@ def phasecong(	img,
 	ori = np.arctan2(EnergyV[:,:,2],EnergyV[:,:,1])
 
 	# Wrap angles between -pi and pi and convert radians to degrees
-	ori = np.where(ori < 0,ori+np.pi,ori)
-	ori = np.round(ori*180./np.pi)
+	ori = np.round((ori % np.pi)*180./np.pi)
 
-	OddV = np.sqrt( EnergyV[:,:,1]**2. + EnergyV[:,:,2]**2. )
+	OddV = np.sqrt( EnergyV[:,:,1]*EnergyV[:,:,1] + 
+			EnergyV[:,:,2]*EnergyV[:,:,2] )
 
 	# Feature phase pi/2 --> white line, 0 --> step, -pi/2 --> black line
 	ft = np.arctan2(EnergyV[:,:,0],OddV)

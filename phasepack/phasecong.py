@@ -1,3 +1,5 @@
+# MIT License:
+
 # Permission is hereby  granted, free of charge, to any  person obtaining a
 # copy of this software and associated  documentation files (the "Software"),
 # to deal in the Software without restriction, subject to the following
@@ -11,7 +13,7 @@
 # Original MATLAB version by Peter Kovesi
 # <http://www.csse.uwa.edu.au/~pk/research/matlabfns/PhaseCongruency/phasecong3.m>
 
-# Translated to Python by Alistair Muldal
+#Python translation by Alistair Muldal
 # <alistair muldal@pharm ox ac uk>
 
 
@@ -23,16 +25,7 @@ from tools import lowpassfilter as _lowpassfilter
 
 # Try and use the faster Fourier transform functions from the pyfftw module if
 # available
-try:
-    from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
-# Otherwise use the normal scipy fftpack ones instead (~2-3x slower!)
-except ImportError:
-    import warnings
-    warnings.warn("""
-Module 'pyfftw' (FFTW Python bindings) could not be imported. To install it, try
-running 'pip install pyfftw' from the terminal. Falling back on the slower
-'fftpack' module for 2D Fourier transforms.""")
-    from scipy.fftpack import fft2, ifft2
+from tools import fft2, ifft2
 
 
 def phasecong(img, nscale=5, norient=6, minWaveLength=3, mult=2.1,

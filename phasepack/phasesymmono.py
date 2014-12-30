@@ -15,6 +15,7 @@
 # Python translation by Alistair Muldal
 # <alistair muldal@pharm ox ac uk>
 
+
 import numpy as np
 import scipy as sp
 from scipy.fftpack import fftshift, ifftshift
@@ -24,16 +25,7 @@ from filtergrid import filtergrid
 
 # Try and use the faster Fourier transform functions from the pyfftw module if
 # available
-try:
-    from pyfftw.interfaces.scipy_fftpack import fft2, ifft2
-# Otherwise use the normal scipy fftpack ones instead (~2-3x slower!)
-except ImportError:
-    import warnings
-    warnings.warn("""
-Module 'pyfftw' (FFTW Python bindings) could not be imported. To install it, try
-running 'pip install pyfftw' from the terminal. Falling back on the slower
-'fftpack' module for 2D Fourier transforms.""")
-    from scipy.fftpack import fft2, ifft2
+from tools import fft2, ifft2
 
 
 def phasesymmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,

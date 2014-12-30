@@ -4,6 +4,7 @@ from scipy.fftpack import fftshift, ifftshift
 from tools import rayleighmode as _rayleighmode
 from tools import lowpassfilter as _lowpassfilter
 from tools import perfft2
+from filtergrid import filtergrid
 
 # Try and use the faster Fourier transform functions from the pyfftw module if
 # available
@@ -31,8 +32,8 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	nscale		5 	Number of wavelet scales, try values 3-6
 	minWaveLength	3 	Wavelength of smallest scale filter.
 	mult 		2.1 	Scaling factor between successive filters.
-	sigmaOnf 	0.55 	Ratio of the standard deviation of the Gaussian 
-				describing the log Gabor filter's transfer function 
+	sigmaOnf 	0.55 	Ratio of the standard deviation of the Gaussian
+				describing the log Gabor filter's transfer function
 				in the frequency domain to the filter center frequency.
 	k 		2.0 	No of standard deviations of the noise energy beyond
 				the mean at which we set the noise threshold point.
@@ -40,11 +41,11 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 				20 for noisy images
 	cutOff 		0.5 	The fractional measure of frequency spread below
 				which phase congruency values get penalized
-	g		10 	Controls the 'sharpness' of the transition in the 
+	g		10 	Controls the 'sharpness' of the transition in the
 				sigmoid function used to weight phase congruency
 				for frequency spread
 	noiseMethod 	-1 	Parameter specifies method used to determine
-				noise statistics. 
+				noise statistics.
 				-1 use median of smallest scale filter responses
 				-2 use mode of smallest scale filter responses
 				0+ use noiseMethod value as the fixed noise threshold.
@@ -55,12 +56,12 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 
 	Return values:
 	------------------------
-	M 			Maximum moment of phase congruency covariance, 
+	M 			Maximum moment of phase congruency covariance,
 				which can be used as a measure of edge strength
-	ori 			Orientation image, in integer degrees (0-180), 
+	ori 			Orientation image, in integer degrees (0-180),
 				positive angles anti-clockwise.
 	ft 			Local weighted mean phase angle at every point in
-				the image. A value of pi/2 corresponds to a bright 
+				the image. A value of pi/2 corresponds to a bright
 				line, 0 to a step and -pi/2 to a dark line.
 	T 			Calculated noise threshold (can be useful for
 				diagnosing noise characteristics of images).  Once you know
@@ -76,7 +77,7 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	Notes on filter settings to obtain even coverage of the spectrum
 	sigmaOnf 	.85   mult 1.3
 	sigmaOnf 	.75   mult 1.6	(filter bandwidth ~1 octave)
-	sigmaOnf 	.65   mult 2.1  
+	sigmaOnf 	.65   mult 2.1
 	sigmaOnf 	.55   mult 3 	(filter bandwidth ~2 octaves)
 
 	For maximum speed the input image should have dimensions that correspond
@@ -110,10 +111,10 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	Permission is hereby  granted, free of charge, to any  person obtaining a copy
 	of this software and associated  documentation files (the "Software"), to deal
 	in the Software without restriction, subject to the following conditions:
-	 
+
 	The above copyright notice and this permission notice shall be included in all
 	copies or substantial portions of the Software.
-	 
+
 	The software is provided "as is", without warranty of any kind.
 	"""
 
@@ -137,24 +138,7 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	sumh1 = zeromat.copy()
 	sumh2 = zeromat.copy()
 
-	# Set up u1 and u2 matrices with ranges normalised to +/- 0.5
-	if (cols % 2):
-		xvals = np.arange(-(cols-1)/2., ((cols-1)/2.)+1) / float(cols-1)
-	else:
-		xvals = np.arange(-cols/2., cols/2.) / float(cols)
-
-	if (rows % 2):
-		yvals = np.arange(-(rows-1)/2., ((rows-1)/2.)+1) / float(rows-1)
-	else:
-		yvals = np.arange(-rows/2., rows/2.) / float(rows)
-	u1,u2 = np.meshgrid(xvals,yvals,sparse=True)
-
-	# Quadrant shift to put 0 frequency at the corners
-	u1 = ifftshift(u1)
-	u2 = ifftshift(u2)
-
-	# Compute frequency values as a radius from centre (but quadrant shifted)
-	radius = np.sqrt(u1*u1 + u2*u2)
+	radius, u1, u2 = filtergrid(rows, cols)
 
 	# Get rid of the 0 radius value at the 0 frequency point (at top-left
 	# corner after fftshift) so that taking the log of the radius will not
@@ -163,7 +147,7 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 
 	# Construct the monogenic filters in the frequency domain.  The two
 	# filters would normally be constructed as follows
-	#    H1 = i*u1./radius 
+	#    H1 = i*u1./radius
 	#    H2 = i*u2./radius
 	# However the two filters can be packed together as a complex valued
 	# matrix, one in the real part and one in the imaginary part.  Do this
@@ -303,18 +287,18 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	# Overall energy
 	energy = np.sqrt(sumf*sumf + sumh1*sumh1 + sumh2*sumh2)
 
-	# Compute phase congruency.  The original measure, 
+	# Compute phase congruency.  The original measure,
 	#
-	# 	PC = energy/sumAn 
+	# 	PC = energy/sumAn
 	#
 	# is proportional to the weighted cos(phasedeviation).  This is not very
 	# localised so this was modified to
 	#
-	# 	PC = cos(phasedeviation) - |sin(phasedeviation)| 
+	# 	PC = cos(phasedeviation) - |sin(phasedeviation)|
 	# (Note this was actually calculated via dot and cross products.)  This
-	# measure approximates 
+	# measure approximates
 	#
-	# 	PC = 1 - phasedeviation.  
+	# 	PC = 1 - phasedeviation.
 	#
 	# However, rather than use dot and cross products it is simpler and more
 	# efficient to simply use acos(energy/sumAn) to obtain the weighted
@@ -326,7 +310,7 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	# frequency spread.  Note also the phase deviation gain factor which
 	# acts to sharpen up the edge response. A value of 1.5 seems to work
 	# well.  Sensible values are from 1 to about 2.
-	
+
 	phase_dev = np.maximum(
 		1. - deviationGain*np.arccos(energy / (sumAn + epsilon)), 0)
 	energy_thresh = np.maximum(energy - T, 0)

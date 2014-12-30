@@ -3,6 +3,7 @@ import scipy as sp
 from scipy.fftpack import fftshift, ifftshift
 from tools import rayleighmode as _rayleighmode
 from tools import lowpassfilter as _lowpassfilter
+from filtergrid import filtergrid
 
 # Try and use the faster Fourier transform functions from the pyfftw module if
 # available
@@ -25,7 +26,7 @@ def phasesymmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	used as a line and blob detector.  The greyscale 'polarity' of the lines
 	that you want to find can be specified.
 
-	See also: 	phasesym, which uses oriented filters and is therefore 
+	See also: 	phasesym, which uses oriented filters and is therefore
 			slower, but also returns an orientation map of the image
 
 	Arguments:
@@ -35,19 +36,19 @@ def phasesymmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	nscale		5 	Number of wavelet scales, try values 3-6
 	minWaveLength	3 	Wavelength of smallest scale filter.
 	mult 		2.1 	Scaling factor between successive filters.
-	sigmaOnf 	0.55 	Ratio of the standard deviation of the Gaussian 
-				describing the log Gabor filter's transfer function 
+	sigmaOnf 	0.55 	Ratio of the standard deviation of the Gaussian
+				describing the log Gabor filter's transfer function
 				in the frequency domain to the filter center frequency.
 	k 		2.0 	No of standard deviations of the noise energy beyond
 				the mean at which we set the noise threshold point.
 				You may want to vary this up to a value of 10 or
-				20 for noisy images 
+				20 for noisy images
 	polarity 	0 	Controls 'polarity' of symmetry features to find.
 				1 - just return 'bright' points
 				-1 - just return 'dark' points
 				0 - return bright and dark points.
 	noiseMethod 	-1 	Parameter specifies method used to determine
-				noise statistics. 
+				noise statistics.
 				-1 use median of smallest scale filter responses
 				-2 use mode of smallest scale filter responses
 				0+ use noiseMethod value as the fixed noise threshold.
@@ -71,7 +72,7 @@ def phasesymmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	Notes on filter settings to obtain even coverage of the spectrum
 	sigmaOnf 	.85   mult 1.3
 	sigmaOnf 	.75   mult 1.6	(filter bandwidth ~1 octave)
-	sigmaOnf 	.65   mult 2.1  
+	sigmaOnf 	.65   mult 2.1
 	sigmaOnf 	.55   mult 3 	(filter bandwidth ~2 octaves)
 
 	For maximum speed the input image should have dimensions that correspond
@@ -105,10 +106,10 @@ def phasesymmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	Permission is hereby  granted, free of charge, to any  person obtaining a copy
 	of this software and associated  documentation files (the "Software"), to deal
 	in the Software without restriction, subject to the following conditions:
-	 
+
 	The above copyright notice and this permission notice shall be included in all
 	copies or substantial portions of the Software.
-	 
+
 	The software is provided "as is", without warranty of any kind.
 
 	"""
@@ -134,24 +135,7 @@ def phasesymmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 	# Matrix for accumulating filter response amplitude values.
 	sumAn = zeromat.copy()
 
-	# Set up u1 and u2 matrices with ranges normalised to +/- 0.5
-	if (cols % 2):
-		xvals = np.arange(-(cols-1)/2., ((cols-1)/2.)+1) / float(cols-1)
-	else:
-		xvals = np.arange(-cols/2., cols/2.) / float(cols)
-
-	if (rows % 2):
-		yvals = np.arange(-(rows-1)/2., ((rows-1)/2.)+1) / float(rows-1)
-	else:
-		yvals = np.arange(-rows/2., rows/2.) / float(rows)
-	u1,u2 = np.meshgrid(xvals,yvals,sparse=True)
-
-	# Quadrant shift to put 0 frequency at the corners
-	u1 = ifftshift(u1)
-	u2 = ifftshift(u2)
-
-	# Compute frequency values as a radius from centre (but quadrant shifted)
-	radius = np.sqrt(u1*u1 + u2*u2)
+	radius, u1, u2 = filtergrid(rows, cols)
 
 	# Get rid of the 0 radius value at the 0 frequency point (at top-left
 	# corner after fftshift) so that taking the log of the radius will not
@@ -160,7 +144,7 @@ def phasesymmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55, k=2.,
 
 	# Construct the monogenic filters in the frequency domain.  The two
 	# filters would normally be constructed as follows
-	#    H1 = i*u1./radius 
+	#    H1 = i*u1./radius
 	#    H2 = i*u2./radius
 	# However the two filters can be packed together as a complex valued
 	# matrix, one in the real part and one in the imaginary part.  Do this

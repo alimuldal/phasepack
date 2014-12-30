@@ -14,6 +14,6 @@ def filtergrid(rows, cols):
     u2 = ifftshift(u2)
 
     # Compute frequency values as a radius from centre (but quadrant shifted)
-    radius = np.sqrt(u1*u1 + u2*u2)
+    radius = np.sqrt(u1 * u1 + u2 * u2)
 
     return radius, u1, u2

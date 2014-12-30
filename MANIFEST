@@ -2,6 +2,7 @@
 README
 setup.py
 phasepack/__init__.py
+phasepack/filtergrid.py
 phasepack/phasecong.py
 phasepack/phasecongmono.py
 phasepack/phasesym.py

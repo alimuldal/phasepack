@@ -18,16 +18,16 @@
 
 
 import numpy as np
-import scipy as sp
 from scipy.fftpack import fftshift, ifftshift
-from tools import rayleighmode as _rayleighmode
-from tools import lowpassfilter as _lowpassfilter
-from tools import perfft2
-from filtergrid import filtergrid
+
+from .tools import rayleighmode as _rayleighmode
+from .tools import lowpassfilter as _lowpassfilter
+from .tools import perfft2
+from .filtergrid import filtergrid
 
 # Try and use the faster Fourier transform functions from the pyfftw module if
 # available
-from tools import fft2, ifft2
+from .tools import fft2, ifft2
 
 
 def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55,
@@ -170,7 +170,7 @@ def phasecongmono(img, nscale=5, minWaveLength=3, mult=2.1, sigmaOnf=0.55,
     lp = _lowpassfilter((rows, cols), .45, 15)
     logGaborDenom = 2. * np.log(sigmaOnf) ** 2.
 
-    for ss in xrange(nscale):
+    for ss in range(nscale):
         wavelength = minWaveLength * mult ** ss
         fo = 1. / wavelength  # Centre frequency of filter
         logRadOverFo = (np.log(radius / fo))

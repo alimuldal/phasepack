@@ -1,17 +1,7 @@
-
-# import parent modules and force reloads (for debugging purposes)
-import phasecong as _pc; reload(_pc)
-import phasecongmono as _pcm; reload(_pcm)
-import phasesym as _ps; reload(_ps)
-import phasesymmono as _psm; reload(_psm)
-import tools as _pt; reload(_pt)
-
-
-# import functions
-from phasecong import phasecong
-from phasecongmono import phasecongmono
-from phasesym import phasesym
-from phasesymmono import phasesymmono
+from .phasecong import phasecong
+from .phasecongmono import phasecongmono
+from .phasesym import phasesym
+from .phasesymmono import phasesymmono
 
 __all__ = [	'phasesym',
 		'phasesymmono',
@@ -58,10 +48,10 @@ MIT License:
 Permission is hereby  granted, free of charge, to any  person obtaining a copy
 of this software and associated  documentation files (the "Software"), to deal
 in the Software without restriction, subject to the following conditions:
- 
+
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
- 
+
 The software is provided "as is", without warranty of any kind.
 
 """

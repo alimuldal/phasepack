@@ -18,14 +18,14 @@
 
 
 import numpy as np
-import scipy as sp
 from scipy.fftpack import fftshift, ifftshift
-from tools import rayleighmode as _rayleighmode
-from tools import lowpassfilter as _lowpassfilter
+
+from .tools import rayleighmode as _rayleighmode
+from .tools import lowpassfilter as _lowpassfilter
 
 # Try and use the faster Fourier transform functions from the pyfftw module if
 # available
-from tools import fft2, ifft2
+from .tools import fft2, ifft2
 
 
 def phasecong(img, nscale=5, norient=6, minWaveLength=3, mult=2.1,
@@ -211,7 +211,7 @@ def phasecong(img, nscale=5, norient=6, minWaveLength=3, mult=2.1,
     logGaborDenom = 2. * np.log(sigmaOnf) ** 2.
     logGabor = []
 
-    for ss in xrange(nscale):
+    for ss in range(nscale):
         wavelength = minWaveLength * mult ** (ss)
 
         # centre of frequency filter
@@ -232,7 +232,7 @@ def phasecong(img, nscale=5, norient=6, minWaveLength=3, mult=2.1,
 
     # MAIN LOOP
     # for each orientation...
-    for oo in xrange(norient):
+    for oo in range(norient):
 
         # Construct the angular filter spread function
         angl = oo * (np.pi / norient)
@@ -267,7 +267,7 @@ def phasecong(img, nscale=5, norient=6, minWaveLength=3, mult=2.1,
         EOscale = []
 
         # for each scale...
-        for ss in xrange(nscale):
+        for ss in range(nscale):
 
             # Multiply radial and angular components to get filter
             filt = logGabor[ss] * spread
@@ -328,7 +328,7 @@ def phasecong(img, nscale=5, norient=6, minWaveLength=3, mult=2.1,
         # response vector and the individual filter response vectors at each
         # scale. This quantity is phase congruency multiplied by An, which we
         # call energy.
-        for ss in xrange(nscale):
+        for ss in range(nscale):
             E = np.real(EOscale[ss])
             O = np.imag(EOscale[ss])
             Energy += E * MeanE + O * MeanO - np.abs(E * MeanO - O * MeanE)

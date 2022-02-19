@@ -6,4 +6,5 @@ setup(name='phasepack',
       author='Alistair Muldal',
       author_email='alistair.muldal@pharm.ox.ac.uk',
       url='https://github.com/alimuldal/phasepack',
+      install_requires=['scipy'],
       packages=['phasepack'])
